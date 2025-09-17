@@ -1,0 +1,26 @@
+{
+  "title": "Router into ACTIVE/INACTIVE",
+  "user": "Plan: intents=[read, router] slots={router:[{name:'RTR_ACTIVE',attrs:{active:"active_flg = 'Y'", inactive:"active_flg <> 'Y'"}}]}",
+  "assistant": """
+```python
+src = spark.read.format("delta").load(f"{SOURCE_BASE}/src")
+active = src.filter("active_flg = 'Y'")
+inactive = src.filter("active_flg <> 'Y'")
+
+final_df = active.unionByName(inactive)
+final_df.createOrReplaceTempView("_merge_src")
+```
+
+```sql
+-- DDL
+CREATE TABLE IF NOT EXISTS ${TARGET_DB}.${TARGET_TABLE} USING DELTA AS SELECT * FROM _merge_src WHERE 1=0;
+```
+
+```sql
+-- DML
+INSERT INTO ${TARGET_DB}.${TARGET_TABLE}
+SELECT * FROM _merge_src;
+```
+"""
+}
+

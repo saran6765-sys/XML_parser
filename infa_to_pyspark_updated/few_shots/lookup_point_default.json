@@ -1,0 +1,34 @@
+{
+  "title": "Point lookup with broadcast and defaults",
+  "user": "Plan: intents=[read, lookup, sequence] slots={lookups:[{name:'LKP_RATE',attrs:{keys:'tx.currency = r.ccy'}}], sequence:{method:'row_number'}}",
+  "assistant": """
+```python
+from pyspark.sql.functions import coalesce, lit, row_number, col, broadcast
+from pyspark.sql.window import Window
+
+tx = spark.read.format("delta").load(f"{SOURCE_BASE}/transactions")
+rates = spark.read.format("delta").load(f"{SOURCE_BASE}/rates")
+
+lkp = tx.join(broadcast(rates), tx.currency == rates.ccy, "left")
+lkp = lkp.withColumn("rate", coalesce(col("rate"), lit(1.0)))
+w = Window.orderBy(col("tx_id"))
+final_df = lkp.withColumn(SURROGATE_KEY_COL, row_number().over(w))
+final_df.createOrReplaceTempView("_merge_src")
+```
+
+```sql
+-- DDL
+CREATE TABLE IF NOT EXISTS ${TARGET_DB}.${TARGET_TABLE} USING DELTA AS SELECT 0 AS emp_sk WHERE 1=0;
+```
+
+```sql
+-- DML
+MERGE INTO ${TARGET_DB}.${TARGET_TABLE} t
+USING _merge_src s
+ON t.tx_id = s.tx_id
+WHEN MATCHED THEN UPDATE SET *
+WHEN NOT MATCHED THEN INSERT *;
+```
+"""
+}
+

@@ -1,0 +1,40 @@
+{
+  "title": "Join fact to dim + MERGE, broadcast dim",
+  "user": "Plan: intents=[read, join:left, sequence, merge] slots={joins:[{name:'JNR_FACT_DIM',type:'joiner:left',attrs:{keys:'f.dept_id = d.dept_id'}}], sequence:{method:'row_number'}, merge_keys:['fact_id'], target_name:'fact_enriched'}",
+  "assistant": """
+```python
+from pyspark.sql.functions import broadcast, row_number, col
+from pyspark.sql.window import Window
+
+f = spark.read.format("delta").load(f"{SOURCE_BASE}/fact")
+d = spark.read.format("delta").load(f"{SOURCE_BASE}/dept_dim")
+
+jnr = f.join(broadcast(d), f.dept_id == d.dept_id, "left")
+w = Window.orderBy(col("fact_id"))
+final_df = jnr.withColumn(SURROGATE_KEY_COL, row_number().over(w))
+final_df = final_df.select(SURROGATE_KEY_COL, "fact_id", "dept_id", "metric", "dept_name")
+final_df.createOrReplaceTempView("_merge_src")
+```
+
+```sql
+-- DDL
+CREATE TABLE IF NOT EXISTS ${TARGET_DB}.${TARGET_TABLE}
+USING DELTA AS SELECT 0 AS emp_sk WHERE 1=0;
+```
+
+```sql
+-- DML
+MERGE INTO ${TARGET_DB}.${TARGET_TABLE} t
+USING _merge_src s
+ON t.fact_id = s.fact_id
+WHEN MATCHED THEN UPDATE SET
+  t.emp_sk = s.emp_sk,
+  t.fact_id = s.fact_id,
+  t.dept_id = s.dept_id,
+  t.metric = s.metric,
+  t.dept_name = s.dept_name
+WHEN NOT MATCHED THEN INSERT *;
+```
+"""
+}
+

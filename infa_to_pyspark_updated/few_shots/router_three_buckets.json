@@ -1,0 +1,30 @@
+{
+  "title": "Router into LOW/MID/HIGH buckets",
+  "user": "Plan: intents=[read, router] slots={router:[{name:'RTR_SAL',attrs:{low:'salary < 3000', mid:'salary between 3000 and 7000', high:'salary > 7000'}}]}",
+  "assistant": """
+```python
+from pyspark.sql.functions import col
+
+emp = spark.read.format("delta").load(f"{SOURCE_BASE}/employees")
+
+low = emp.filter(col("salary") < 3000)
+mid = emp.filter((col("salary") >= 3000) & (col("salary") <= 7000))
+high = emp.filter(col("salary") > 7000)
+
+final_df = low.unionByName(mid).unionByName(high)
+final_df.createOrReplaceTempView("_merge_src")
+```
+
+```sql
+-- DDL
+CREATE TABLE IF NOT EXISTS ${TARGET_DB}.${TARGET_TABLE} USING DELTA AS SELECT * FROM _merge_src WHERE 1=0;
+```
+
+```sql
+-- DML
+INSERT INTO ${TARGET_DB}.${TARGET_TABLE}
+SELECT * FROM _merge_src;
+```
+"""
+}
+

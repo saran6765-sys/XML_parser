@@ -1,0 +1,27 @@
+{
+  "title": "Range/AS-OF lookup (effective dating)",
+  "user": "Plan: intents=[read, lookup] slots={lookups:[{name:'LKP_RATE_RANGE',attrs:{range:'tx.date between r.eff_start and r.eff_end'}}]}",
+  "assistant": """
+```python
+from transform_framework import apply_lookup_range
+
+tx = spark.read.format("delta").load(f"{SOURCE_BASE}/transactions")
+rates = spark.read.format("delta").load(f"{SOURCE_BASE}/rates_hist")
+
+lkp = apply_lookup_range(tx, rates, key="date", min_col="eff_start", max_col="eff_end", value_cols=["rate"]) 
+lkp.createOrReplaceTempView("_merge_src")
+```
+
+```sql
+-- DDL
+CREATE TABLE IF NOT EXISTS ${TARGET_DB}.${TARGET_TABLE} USING DELTA AS SELECT * FROM _merge_src WHERE 1=0;
+```
+
+```sql
+-- DML
+INSERT INTO ${TARGET_DB}.${TARGET_TABLE}
+SELECT * FROM _merge_src;
+```
+"""
+}
+

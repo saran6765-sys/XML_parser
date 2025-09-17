@@ -1,0 +1,48 @@
+{
+  "title": "Join + MERGE on natural keys (inner join)",
+  "user": "Plan: intents=[read, join:inner, sequence, merge] slots={joins:[{name:'JNR_ORDERS_CUSTOMERS',type:'joiner:inner',attrs:{keys:'orders.customer_id = customers.customer_id'}}], sequence:{method:'row_number'}, merge_keys:['order_id'], partition_columns:[], target_name:'orders_enriched'}",
+  "assistant": """
+```python
+from pyspark.sql.functions import col, row_number
+from pyspark.sql.window import Window
+
+orders = spark.read.format("delta").load(f"{SOURCE_BASE}/orders")
+customers = spark.read.format("delta").load(f"{SOURCE_BASE}/customers")
+
+jnr = orders.join(customers, orders.customer_id == customers.customer_id, "inner")
+
+w = Window.orderBy(col("order_id"))
+out = jnr.withColumn(SURROGATE_KEY_COL, row_number().over(w))
+
+final_df = out.select(
+    SURROGATE_KEY_COL,
+    "order_id", "customer_id", "order_date", "amount", "customer_name"
+)
+
+final_df.createOrReplaceTempView("_merge_src")
+```
+
+```sql
+-- DDL
+CREATE TABLE IF NOT EXISTS ${TARGET_DB}.${TARGET_TABLE}
+USING DELTA
+AS SELECT 0 AS emp_sk WHERE 1=0;
+```
+
+```sql
+-- DML (MERGE)
+MERGE INTO ${TARGET_DB}.${TARGET_TABLE} t
+USING _merge_src s
+ON t.order_id = s.order_id
+WHEN MATCHED THEN UPDATE SET
+  t.emp_sk = s.emp_sk,
+  t.order_id = s.order_id,
+  t.customer_id = s.customer_id,
+  t.order_date = s.order_date,
+  t.amount = s.amount,
+  t.customer_name = s.customer_name
+WHEN NOT MATCHED THEN INSERT *;
+```
+"""
+}
+
